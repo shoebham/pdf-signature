@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- Previous head content remains the same -->
+<!-- Previous head and style content remains exactly the same -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Signature Tool</title>
     <style>
-        /* Previous styles remain the same */
+        /* All previous styles remain exactly the same */
         body {
             font-family: Arial, sans-serif;
             margin: 0;
@@ -81,7 +81,7 @@
     </style>
 </head>
 <body>
-    <!-- Previous HTML content remains the same -->
+    <!-- Previous HTML content remains exactly the same -->
     <div class="container">
         <div id="uploadSection">
             <h2>Upload PDF</h2>
@@ -111,7 +111,6 @@
         </div>
     </div>
 
-    <!-- Add required libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
@@ -123,9 +122,9 @@
         let currentPage = 1;
         let scale = 1.5;
         let originalSignatureImage = null;
-        let pdfBytes = null; // Store the original PDF bytes
+        let pdfBytes = null;
 
-        // Previous event listeners and functions remain the same until handlePDFUpload
+        // Event Listeners
         document.getElementById('pdfInput').addEventListener('change', handlePDFUpload);
         document.getElementById('addSignature').addEventListener('click', () => document.getElementById('signatureInput').click());
         document.getElementById('signatureInput').addEventListener('change', handleSignatureUpload);
@@ -138,7 +137,7 @@
             const file = event.target.files[0];
             if (file && file.type === 'application/pdf') {
                 const arrayBuffer = await file.arrayBuffer();
-                pdfBytes = arrayBuffer; // Store the original PDF bytes
+                pdfBytes = arrayBuffer;
                 currentPDF = await pdfjsLib.getDocument(arrayBuffer).promise;
                 document.getElementById('uploadSection').style.display = 'none';
                 document.getElementById('viewerSection').style.display = 'block';
@@ -146,7 +145,6 @@
             }
         }
 
-        // Previous functions remain the same until downloadSignedPDF
         async function renderPage(pageNumber) {
             const page = await currentPDF.getPage(pageNumber);
             const viewport = page.getViewport({ scale });
@@ -168,7 +166,6 @@
             pdfViewer.appendChild(canvas);
         }
 
-        // Previous signature handling functions remain the same
         function handleSignatureUpload(event) {
             const file = event.target.files[0];
             if (file) {
@@ -184,7 +181,6 @@
             }
         }
 
-        // Previous preview and processing functions remain the same
         function showSignaturePreview(image) {
             const previewSection = document.getElementById('previewSection');
             const overlay = document.getElementById('overlay');
@@ -201,7 +197,95 @@
             updatePreview();
         }
 
-        // Modified download function to create PDF
+        // Added missing updatePreview function
+        function updatePreview() {
+            const canvas = document.getElementById('previewCanvas');
+            const ctx = canvas.getContext('2d');
+            const threshold = parseInt(document.getElementById('thresholdSlider').value);
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw original image
+            ctx.drawImage(originalSignatureImage, 0, 0, canvas.width, canvas.height);
+            
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Apply processing
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert to grayscale
+                const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                
+                // Apply threshold
+                const value = avg < threshold ? 0 : 255;
+                
+                // Set RGB values
+                data[i] = value;     // R
+                data[i + 1] = value; // G
+                data[i + 2] = value; // B
+                
+                // Adjust alpha for white pixels
+                if (value === 255) {
+                    data[i + 3] = 0; // Make white pixels transparent
+                }
+            }
+            
+            // Put processed image data back
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function confirmSignature() {
+            const canvas = document.getElementById('previewCanvas');
+            const signature = document.createElement('img');
+            signature.src = canvas.toDataURL('image/png');
+            signature.className = 'signature';
+            signature.style.left = '50px';
+            signature.style.top = '50px';
+            
+            makeElementDraggable(signature);
+            document.getElementById('pdfViewer').appendChild(signature);
+            
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function cancelSignature() {
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function makeElementDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            
+            element.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
         async function downloadSignedPDF() {
             const pdfViewer = document.getElementById('pdfViewer');
             const canvas = pdfViewer.querySelector('canvas');
@@ -242,37 +326,6 @@
 
             // Download the PDF
             pdf.save('signed-document.pdf');
-        }
-
-        // Previous utility functions remain the same
-        function makeElementDraggable(element) {
-            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-            
-            element.onmousedown = dragMouseDown;
-
-            function dragMouseDown(e) {
-                e.preventDefault();
-                pos3 = e.clientX;
-                pos4 = e.clientY;
-                document.onmouseup = closeDragElement;
-                document.onmousemove = elementDrag;
-            }
-
-            function elementDrag(e) {
-                e.preventDefault();
-                pos1 = pos3 - e.clientX;
-                pos2 = pos4 - e.clientY;
-                pos3 = e.clientX;
-                pos4 = e.clientY;
-                
-                element.style.top = (element.offsetTop - pos2) + "px";
-                element.style.left = (element.offsetLeft - pos1) + "px";
-            }
-
-            function closeDragElement() {
-                document.onmouseup = null;
-                document.onmousemove = null;
-            }
         }
     </script>
 </body>
