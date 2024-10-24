@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Signature Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #uploadSection {
+            text-align: center;
+            padding: 40px;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        #pdfViewer {
+            width: 100%;
+            height: 800px;
+            border: 1px solid #ccc;
+            margin: 20px 0;
+            position: relative;
+        }
+        .signature {
+            position: absolute;
+            cursor: move;
+            max-width: 200px;
+            max-height: 100px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #controls {
+            margin: 20px 0;
+        }
+        /* Preview canvas styling */
+        #previewSection {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        #overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="uploadSection">
+            <h2>Upload PDF</h2>
+            <input type="file" id="pdfInput" accept=".pdf" />
+        </div>
+        
+        <div id="viewerSection" style="display: none;">
+            <div id="controls">
+                <button id="addSignature">Add Signature</button>
+                <input type="file" id="signatureInput" accept=".jpg,.jpeg,.png" style="display: none;" />
+                <button id="downloadBtn">Download</button>
+            </div>
+            <div id="pdfViewer"></div>
+        </div>
+    </div>
+
+    <!-- Preview section for signature processing -->
+    <div id="overlay"></div>
+    <div id="previewSection">
+        <h3>Adjust Signature</h3>
+        <canvas id="previewCanvas"></canvas>
+        <div>
+            <label>Threshold: <input type="range" id="thresholdSlider" min="0" max="255" value="128"></label>
+        </div>
+        <div>
+            <button id="confirmSignature">Confirm</button>
+            <button id="cancelSignature">Cancel</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // PDF.js initialization
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let currentPDF = null;
+        let currentPage = 1;
+        let scale = 1.5;
+        let originalSignatureImage = null;
+
+        // Event Listeners
+        document.getElementById('pdfInput').addEventListener('change', handlePDFUpload);
+        document.getElementById('addSignature').addEventListener('click', () => document.getElementById('signatureInput').click());
+        document.getElementById('signatureInput').addEventListener('change', handleSignatureUpload);
+        document.getElementById('downloadBtn').addEventListener('click', downloadSignedPDF);
+        document.getElementById('thresholdSlider').addEventListener('input', updatePreview);
+        document.getElementById('confirmSignature').addEventListener('click', confirmSignature);
+        document.getElementById('cancelSignature').addEventListener('click', cancelSignature);
+
+        async function handlePDFUpload(event) {
+            const file = event.target.files[0];
+            if (file && file.type === 'application/pdf') {
+                const arrayBuffer = await file.arrayBuffer();
+                currentPDF = await pdfjsLib.getDocument(arrayBuffer).promise;
+                document.getElementById('uploadSection').style.display = 'none';
+                document.getElementById('viewerSection').style.display = 'block';
+                renderPage(1);
+            }
+        }
+
+        async function renderPage(pageNumber) {
+            const page = await currentPDF.getPage(pageNumber);
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            
+            const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+            };
+
+            await page.render(renderContext).promise;
+            
+            const pdfViewer = document.getElementById('pdfViewer');
+            pdfViewer.innerHTML = '';
+            pdfViewer.appendChild(canvas);
+        }
+
+        function handleSignatureUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    originalSignatureImage = new Image();
+                    originalSignatureImage.onload = function() {
+                        showSignaturePreview(originalSignatureImage);
+                    };
+                    originalSignatureImage.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function showSignaturePreview(image) {
+            const previewSection = document.getElementById('previewSection');
+            const overlay = document.getElementById('overlay');
+            const canvas = document.getElementById('previewCanvas');
+            
+            // Set canvas size based on image dimensions
+            const maxWidth = 400;
+            const scale = maxWidth / image.width;
+            canvas.width = image.width * scale;
+            canvas.height = image.height * scale;
+            
+            // Show preview section and overlay
+            previewSection.style.display = 'block';
+            overlay.style.display = 'block';
+            
+            updatePreview();
+        }
+
+        function updatePreview() {
+            const canvas = document.getElementById('previewCanvas');
+            const ctx = canvas.getContext('2d');
+            const threshold = parseInt(document.getElementById('thresholdSlider').value);
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw and process image
+            ctx.drawImage(originalSignatureImage, 0, 0, canvas.width, canvas.height);
+            
+            // Get image data
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imageData.data;
+            
+            // Apply processing
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert to grayscale
+                const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                
+                // Apply threshold
+                const value = avg < threshold ? 0 : 255;
+                
+                // Set RGB values
+                data[i] = value;     // R
+                data[i + 1] = value; // G
+                data[i + 2] = value; // B
+                
+                // Adjust alpha for white pixels
+                if (value === 255) {
+                    data[i + 3] = 0; // Make white pixels transparent
+                }
+            }
+            
+            // Put processed image data back
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function confirmSignature() {
+            const canvas = document.getElementById('previewCanvas');
+            const signature = document.createElement('img');
+            signature.src = canvas.toDataURL('image/png');
+            signature.className = 'signature';
+            signature.style.left = '50px';
+            signature.style.top = '50px';
+            
+            makeElementDraggable(signature);
+            document.getElementById('pdfViewer').appendChild(signature);
+            
+            // Hide preview section
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function cancelSignature() {
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+        }
+
+        function makeElementDraggable(element) {
+            let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+            
+            element.onmousedown = dragMouseDown;
+
+            function dragMouseDown(e) {
+                e.preventDefault();
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                document.onmouseup = closeDragElement;
+                document.onmousemove = elementDrag;
+            }
+
+            function elementDrag(e) {
+                e.preventDefault();
+                pos1 = pos3 - e.clientX;
+                pos2 = pos4 - e.clientY;
+                pos3 = e.clientX;
+                pos4 = e.clientY;
+                
+                element.style.top = (element.offsetTop - pos2) + "px";
+                element.style.left = (element.offsetLeft - pos1) + "px";
+            }
+
+            function closeDragElement() {
+                document.onmouseup = null;
+                document.onmousemove = null;
+            }
+        }
+
+        async function downloadSignedPDF() {
+            const pdfViewer = document.getElementById('pdfViewer');
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            // Set canvas size to match the PDF viewer
+            canvas.width = pdfViewer.offsetWidth;
+            canvas.height = pdfViewer.offsetHeight;
+            
+            // Draw the PDF canvas
+            context.drawImage(pdfViewer.querySelector('canvas'), 0, 0);
+            
+            // Draw signatures
+            const signatures = pdfViewer.querySelectorAll('.signature');
+            signatures.forEach(sig => {
+                const rect = sig.getBoundingClientRect();
+                const pdfRect = pdfViewer.getBoundingClientRect();
+                context.drawImage(sig, 
+                    rect.left - pdfRect.left, 
+                    rect.top - pdfRect.top,
+                    rect.width,
+                    rect.height
+                );
+            });
+            
+            // Convert to image and download
+            const image = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = 'signed-document.png';
+            link.href = image;
+            link.click();
+        }
+    </script>
+</body>
+</html>
